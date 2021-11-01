@@ -235,7 +235,7 @@ void *shmat(int shmid, const void *shmaddr, int shmflg); //获取内核中共享
 
 int shmdt(const void *shmaddr); //取消用户空间挂载的内核中共享内存
 
-int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+int shmctl(int shmid, int cmd, struct shmid_ds *buf); //对共享内存区域的操作
 ```
 
 ![image-20211024163030808](C:\Users\gaoxiang7\AppData\Roaming\Typora\typora-user-images\image-20211024163030808.png)
@@ -250,7 +250,7 @@ int shmctl(int shmid, int cmd, struct shmid_ds *buf);
 key_t ftok(const char *pathname, int proj_id);
 ```
 
-ftok函数利用给定的路径找到指定的文件，并和一个小端8为proj_id（必须是非0值）生成一个key_t类型的System V IPC key，后续可以通过这个key指向内核中的这块共享内存区域
+ftok函数利用给定的路径找到指定的文件，并和一个小端8位proj_id（必须是非0值）生成一个key_t类型的System V IPC key，后续可以通过这个key指向内核中的这块共享内存区域
 
 ### shmget获取共享内存标识符
 
@@ -263,7 +263,270 @@ int shmget(key_t key, size_t size, int shmflg);
 - size：用于指定需要的共享内存大小
   - 创建新段：一般在服务器中，则必须指定size
   - 访问已有段：一般在客户机中，则将size指定为0
-- shmflg：用户指明该段内存的访问权限，与open mode类似
-  - IPC_CREAT
-  - IPC_EXCL
+- shmflg：
+  - IPC_CREAT：如果不存在则创建，创建时需指明该段内存的访问权限，与open mode类似，将访问权限和该宏进行按位与
+  - IPC_EXCL：如果将该宏和IPC_CREAT按位与后不可重复创建
+
+### shmat映射共享内存空间
+
+用户空间的进程可以利用shmat方法将shmget获取的共享内存标识符传入，对内核空间的共享内存映射到用户空间
+
+```c
+void *shmat(int shmid, const void *addr, int shmflg);
+```
+
+- 返回值：如果成功则返回指向共享内存段的指针，如果出错则返回-1
+- shmid：由shmget获取得到的共享内存标识符
+- addr：
+  - 如果为NULL，则此段连接到由内核选择的第一个可用地址上
+  - 如果为非NULL，并且没有指定SHM_RND，则此段连接到addr所指向的地址上
+  - 如果addr非0，并且制定了SHM_RND，则此段连接到（addr - (addr mod SHMLBA））所表示的地址上，即向下取整到最近1个SHM_LBA的倍数
+    - SHM_RND：取整
+    - SHM_LBA：低边界地址倍数，它总是2的乘方
+  - 一般应指定addr为0，以便由内核选择地址
+
+
+
+## 代码演示
+
+```c
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/shm.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/wait.h>
+
+int main() {
+
+    key_t key = ftok("./pipeOpt.c", 99); //利用文件和项目号获取key值
+    printf("key = 0x%x\n", key);
+
+    int shm_id = shmget(key, 20, IPC_CREAT | 0666); //利用key申请一个共享内存空间
+    if (shm_id < 0) {
+        perror("shmget");
+        exit(1);
+    }
+    printf("shmid = %d\n", shm_id);
+
+    char *shm_p = shmat(shm_id, NULL, 0); //将共享内存空间映射到用户空间
+    if (shm_p < 0) {
+        perror("shmat");
+        exit(1);
+    }
+    printf("shmp = %p\n", shm_p);
+    //snprintf(shm_p, 20, "hello\n");
+    //printf("%s", shm_p);
+
+    bzero(shm_p, 20); //清空共享内存空间20个字节
+
+    //利用共享内存空间实现父子进程间的通信
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        exit(1);
+    }
+    if (pid > 0) {
+        //parent process
+        while (1) {
+            //父进程循环写入，直到quit终止
+            scanf("%s", shm_p);
+            if (!strcmp(shm_p, "quit")) break;
+        }
+        wait(NULL);
+    } else {
+        //child process
+        while (1) {
+            //子进程循环读，直到读到quit终止
+            if (!strcmp(shm_p, "quit")) break;
+            if (*shm_p) {
+                printf("child read: %s\n", shm_p);
+                bzero(shm_p, 20);
+            }
+            sleep(1);
+        }
+    }
+
+    shmdt(shm_p); //取消共享内存映射关系
+
+    return 0;
+}
+```
+
+
+
+
+
+# 消息队列
+
+系统内核维护了一个存放消息的队列，不同用户可以向队列中发送消息，或者从队列中接收消息
+
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+int msgget(key_t key, int msgflg);
+int msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
+ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp, int msgflg);
+```
+
+![image-20211024221453145](C:\Users\m1874\AppData\Roaming\Typora\typora-user-images\image-20211024221453145.png)
+
+
+
+## 各部分详解
+
+### msgget创建消息队列
+
+系统创建或获取消息队列，如果不存在则创建，如果存在则获取
+
+```c
+int msgget(key_t key, int mode);
+```
+
+- 返回值：创建好的消息队列id
+- key：由ftok生成的内核空间key
+- mode：由宏定义组成的不同选项
+  - IPC_CREAT | 0666：在创建的时候要赋予访问权限
+
+### msgsnd向队列发送消息
+
+往消息队列中发送一条消息，此操作被中断后不会被重启（信号处理中SA_RESTAT)
+
+```c
+int msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
+```
+
+- 返回值：成功写入返回0，失败返回-1
+
+- msgid：由msgget获得的消息队列id
+
+- msgp：消息结构体指针，该结构体如下
+
+  ```c
+  struct msgbuf {
+      long mtype; //消息类型，必须大于0
+      char mtext[100]; //消息数据，可定义类型和大小
+  }；
+  ```
+
+- msgsz：消息的长度，指消息数据的长度
+- msgflg：宏组合，用户不同的发送模式
+  - IPC_NOWAIT：非阻塞写入
+  - MSG_EXCPT：接收不检测mtype
+  - MSG_NOERROR：消息数据过长时会截断数据
+
+### msgrcv读取队列中的消息
+
+从队列中读取对应type最靠前的那条消息
+
+**注意：使用msgrcv读取消息会将此条消息从队列中移除**
+
+```c
+ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp, int msgflg);
+```
+
+- 返回值：成功返回实际读取到mtext中的字节数，失败返回-1
+- msgtyp：指定需要从队列中读取的消息类别
+- 其余参数同msgsnd
+
+
+
+## 代码演示
+
+### 向队列中发送消息
+
+```c
+#include<stdio.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/shm.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/wait.h>
+#include <sys/msg.h>
+
+#define MSGLEN 20
+
+typedef struct msgbuf {
+    long mtype;
+    char mtext[MSGLEN];
+} MSG;
+
+int main() {
+
+    //利用ftok获取内核地址段的key
+    key_t key = ftok("./proj_id.txt", 9);
+    printf("key = 0x%x\n", key);
+
+    //利用msgget创建消息队列，并赋予它读写权限
+    int mq_id = msgget(key, IPC_CREAT | 0666);
+    printf("mqid = %d\n", mq_id);
+
+    //定义消息结构体并调用msgsnd向消息队列中输出消息
+    MSG msg;
+    msg.mtype = 1; //消息1
+    strncpy(msg.mtext, "hi, how are you?\n", MSGLEN);
+    msgsnd(mq_id, &msg, MSGLEN, 0);
+    msg.mtype = 2; //消息2
+    strncpy(msg.mtext, "xiaokai: online\n", MSGLEN);
+    msgsnd(mq_id, &msg, MSGLEN, 0);
+
+    return 0;
+}
+```
+
+### 从队列中读取消息
+
+```c
+#include<stdio.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/shm.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/wait.h>
+#include <sys/msg.h>
+
+#define MSGLEN 20
+
+typedef struct msgbuf {
+    long mtype;
+    char mtext[MSGLEN];
+} MSG;
+
+int main() {
+
+    //利用ftok获取内核地址段的key
+    key_t key = ftok("./proj_id.txt", 9);
+    printf("key = 0x%x\n", key);
+
+    //利用msgget创建消息队列，并赋予它读写权限
+    int mq_id = msgget(key, IPC_CREAT | 0666);
+    printf("mqid = %d\n", mq_id);
+
+    //定义消息结构体并调用msgsnd向消息队列中输出消息
+    MSG msg;
+    msgrcv(mq_id, &msg, MSGLEN, 2, 0);
+    printf("msg,type = %ld\nmsg.text = %s\n", msg.mtype, msg.mtext);
+    msgrcv(mq_id, &msg, MSGLEN, 1, 0);
+    printf("msg,type = %ld\nmsg.text = %s\n", msg.mtype, msg.mtext);
+
+    return 0;
+}
+```
 
