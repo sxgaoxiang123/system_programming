@@ -8,7 +8,7 @@
 
 内核提供的这种机制称为**进程间通信（IPC，Inter Process Communication）**
 
-![image-20211024112113540](C:\Users\gaoxiang7\AppData\Roaming\Typora\typora-user-images\image-20211024112113540.png)
+![image-20211024112113540](../image/image-20211024112113540.png)
 
 
 
@@ -43,11 +43,11 @@ int pipe2(int filedes[2], int flags);
 2. 父进程调用fork生成子进程，子进程会copy父进程的文件描述符表，此时父进程和子进程同时记录了管道的读端和写端
 3. 父进程关闭读端，子进程关闭写端，就实现了信息从父进程到子进程的单项传递
 
-![image-20211024112525803](C:\Users\gaoxiang7\AppData\Roaming\Typora\typora-user-images\image-20211024112525803.png)
+![image-20211024112525803](../image/image-20211024112525803.png)
 
-![image-20211024113751560](C:\Users\gaoxiang7\AppData\Roaming\Typora\typora-user-images\image-20211024113751560.png)
+![image-20211024113751560](../image/image-20211024113751560.png)
 
-![image-20211024113833321](C:\Users\gaoxiang7\AppData\Roaming\Typora\typora-user-images\image-20211024113833321.png)
+![image-20211024113833321](../image/image-20211024113833321.png)
 
 ```c
 #include<stdio.h>
@@ -238,7 +238,7 @@ int shmdt(const void *shmaddr); //取消用户空间挂载的内核中共享内�
 int shmctl(int shmid, int cmd, struct shmid_ds *buf); //对共享内存区域的操作
 ```
 
-![image-20211024163030808](C:\Users\gaoxiang7\AppData\Roaming\Typora\typora-user-images\image-20211024163030808.png)
+![image-20211024163030808](../image/image-20211024163030808.png)
 
 
 
